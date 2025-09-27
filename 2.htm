@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code 產生器</title>
+    <!-- 引入 Tailwind CSS 以進行快速美化 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 更換為支援版本設定的 EasyQRCodeJS 函式庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/easyqrcodejs@4.4.13/dist/easy.qrcode.min.js"></script>
+    <style>
+        /* EasyQRCodeJS 會建立自己的 canvas 和 img 標籤，讓容器 flex 置中即可 */
+        #qrcode {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans py-10">
+    <div class="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg p-6 md:p-8 text-center">
+        
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">QR Code 產生器</h1>
+        <p class="text-gray-500 mb-6">編輯號碼或調整下方選項來更新</p>
+
+        <!-- 發票號碼輸入框 -->
+        <div class="mb-4">
+            <label for="invoice-number" class="sr-only">發票號碼</label>
+            <input type="text" id="invoice-number" value="NX07603329" class="w-full px-4 py-3 text-lg text-center border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-300">
+            <!-- 錯誤訊息顯示區域 -->
+            <p id="error-message" class="text-red-600 h-5 mt-1 text-sm"></p>
+        </div>
+
+        <!-- 選項控制 -->
+        <div class="space-y-4 mb-6 text-left">
+             <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label for="level-select" class="block text-sm font-medium text-gray-700 mb-1">容錯率</label>
+                    <select id="level-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="L" selected>L (低 ~7%)</option>
+                        <option value="M">M (中 ~15%)</option>
+                        <option value="Q">Q (高 ~25%)</option>
+                        <option value="H">H (最高 ~30%)</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="version-select" class="block text-sm font-medium text-gray-700 mb-1">密度 (版本)</label>
+                    <select id="version-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="0" selected>AUTO</option>
+                        <!-- Options 6-40 will be added by JS -->
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label for="size-slider" class="block text-sm font-medium text-gray-700 mb-1">尺寸: <span id="size-value">240</span>px</label>
+                <input type="range" id="size-slider" min="100" max="500" value="240" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+        </div>
+
+        <!-- QR Code 顯示區域 -->
+        <div id="qrcode" class="mb-6 w-auto h-auto min-w-[256px] min-h-[256px] mx-auto p-4 border rounded-lg bg-gray-50">
+            <!-- QR Code 將會被插入到這裡 -->
+        </div>
+
+        <!-- 控制按鈕 -->
+        <div class="flex justify-center space-x-4">
+            <button id="prev-btn" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform hover:-translate-y-1">
+                上一個
+            </button>
+            <button id="next-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform hover:-translate-y-1">
+                下一個
+            </button>
+        </div>
+        
+        <!-- 下載按鈕 -->
+        <div class="mt-4">
+            <button id="download-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform hover:-translate-y-1">
+                下載 QR Code
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 獲取 DOM 元素
+        const invoiceInput = document.getElementById('invoice-number');
+        const qrcodeContainer = document.getElementById('qrcode');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const errorMessage = document.getElementById('error-message');
+        const levelSelect = document.getElementById('level-select');
+        const versionSelect = document.getElementById('version-select');
+        const sizeSlider = document.getElementById('size-slider');
+        const sizeValue = document.getElementById('size-value');
+        const downloadBtn = document.getElementById('download-btn');
+
+        // 用於儲存 QRCode 實例
+        let qrcodeInstance = null;
+
+        // 定義 QR Code 內容的固定後綴部分
+        const STATIC_SUFFIX = "5110000006ac000006ac0000000042974314YX+9lXMoNCS26/dp3oS5Ow==:**********:7:17:1:ｦﾛｿ顬pｮﾆ:2:50:1:1:1";
+
+        /**
+         * 獲取當前日期的民國年格式 (YYYMMDD)
+         */
+        function getROCDateString() {
+            const today = new Date();
+            const rocYear = today.getFullYear() - 1911;
+            const month = (today.getMonth() + 1).toString().padStart(2, '0');
+            const day = today.getDate().toString().padStart(2, '0');
+            return `${rocYear}${month}${day}`;
+        }
+
+        /**
+         * 根據輸入內容產生 QR Code
+         */
+        function generateQRCode() {
+            errorMessage.textContent = '';
+            const invoiceNumber = invoiceInput.value.trim();
+            if (!invoiceNumber) {
+                qrcodeContainer.innerHTML = '<p class="text-red-500">請輸入號碼</p>';
+                return;
+            }
+
+            const size = parseInt(sizeSlider.value, 10);
+            const level = levelSelect.value;
+            const version = parseInt(versionSelect.value, 10);
+            
+            sizeValue.textContent = size;
+            const rocDate = getROCDateString();
+            const qrContent = `${invoiceNumber}${rocDate}${STATIC_SUFFIX}`;
+
+            // 對應 EasyQRCodeJS 的容錯率枚舉
+            const correctLevelMap = {
+                'L': QRCode.CorrectLevel.L,
+                'M': QRCode.CorrectLevel.M,
+                'Q': QRCode.CorrectLevel.Q,
+                'H': QRCode.CorrectLevel.H
+            };
+
+            const options = {
+                text: qrContent,
+                width: size,
+                height: size,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: correctLevelMap[level],
+                version: version,
+            };
+
+            qrcodeContainer.innerHTML = '';
+            
+            try {
+                qrcodeInstance = new QRCode(qrcodeContainer, options);
+            } catch (error) {
+                console.error("QR Code generation failed:", error);
+                qrcodeContainer.innerHTML = `<p class="text-red-500">產生失敗: 資料過長或版本太小。</p>`;
+                qrcodeInstance = null;
+            }
+        }
+
+        /**
+         * 更新發票號碼（增加或減少）
+         */
+        function updateInvoiceNumber(amount) {
+            const currentValue = invoiceInput.value;
+            const match = currentValue.match(/^([A-Za-z]{2})(\d{8})$/);
+
+            if (match) {
+                errorMessage.textContent = '';
+                const prefix = match[1];
+                let number = parseInt(match[2], 10);
+                number += amount;
+                if (number < 0) number = 0;
+                const newNumberStr = number.toString().padStart(8, '0');
+                invoiceInput.value = `${prefix.toUpperCase()}${newNumberStr}`;
+                generateQRCode();
+            } else {
+                errorMessage.textContent = "格式不正確 (應為2個英文字母+8個數字)";
+            }
+        }
+
+        /**
+         * 下載 QR Code 功能
+         */
+        function downloadQRCode() {
+            if (qrcodeInstance) {
+                // 使用函式庫內建的下載方法
+                qrcodeInstance.download(`qrcode-${invoiceInput.value}`);
+            } else {
+                alert("請先成功產生 QR Code 後再下載。");
+            }
+        }
+
+        // --- 事件監聽器 ---
+        invoiceInput.addEventListener('input', generateQRCode);
+        prevBtn.addEventListener('click', () => updateInvoiceNumber(-1));
+        nextBtn.addEventListener('click', () => updateInvoiceNumber(1));
+        levelSelect.addEventListener('change', generateQRCode);
+        versionSelect.addEventListener('change', generateQRCode);
+        sizeSlider.addEventListener('input', generateQRCode);
+        downloadBtn.addEventListener('click', downloadQRCode);
+
+        // --- 初始載入 ---
+        window.addEventListener('load', () => {
+            for (let i = 6; i <= 40; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = i;
+                versionSelect.appendChild(option);
+            }
+            generateQRCode();
+        });
+
+    </script>
+</body>
+</html>
+
