@@ -6,17 +6,17 @@
     <title>QR Code 產生器</title>
     <!-- 引入 Tailwind CSS 以進行快速美化 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- *** FIX: 更換為更現代的 QRious 函式庫 *** -->
+    <!-- 更換為更現代的 QRious 函式庫 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
     <style>
         /* QR Code 容器內的 canvas 將會自動置中，無需額外樣式 */
     </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans">
-    <div class="w-full max-w-sm mx-auto bg-white rounded-xl shadow-lg p-6 md:p-8 text-center">
+<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans py-10">
+    <div class="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg p-6 md:p-8 text-center">
         
         <h1 class="text-2xl font-bold text-gray-800 mb-2">QR Code 產生器</h1>
-        <p class="text-gray-500 mb-6">編輯號碼或按上下一個按鈕更新</p>
+        <p class="text-gray-500 mb-6">編輯號碼或調整下方選項來更新</p>
 
         <!-- 發票號碼輸入框 -->
         <div class="mb-4">
@@ -26,8 +26,25 @@
             <p id="error-message" class="text-red-600 h-5 mt-1 text-sm"></p>
         </div>
 
+        <!-- 選項控制 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 text-left">
+            <div>
+                <label for="level-select" class="block text-sm font-medium text-gray-700 mb-1">容錯率</label>
+                <select id="level-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="L" selected>L (低 ~7%)</option>
+                    <option value="M">M (中 ~15%)</option>
+                    <option value="Q">Q (高 ~25%)</option>
+                    <option value="H">H (最高 ~30%)</option>
+                </select>
+            </div>
+            <div class="flex flex-col justify-between">
+                <label for="size-slider" class="block text-sm font-medium text-gray-700 mb-1">尺寸: <span id="size-value">240</span>px</label>
+                <input type="range" id="size-slider" min="100" max="500" value="240" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+        </div>
+
         <!-- QR Code 顯示區域 -->
-        <div id="qrcode" class="flex justify-center items-center mb-6 w-64 h-64 mx-auto p-4 border rounded-lg bg-gray-50">
+        <div id="qrcode" class="flex justify-center items-center mb-6 w-auto h-auto min-w-[256px] min-h-[256px] mx-auto p-4 border rounded-lg bg-gray-50 overflow-auto">
             <!-- QR Code 將會被插入到這裡 -->
         </div>
 
@@ -41,6 +58,12 @@
             </button>
         </div>
         
+        <!-- 下載按鈕 -->
+        <div class="mt-4">
+            <button id="download-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out transform hover:-translate-y-1">
+                下載 QR Code
+            </button>
+        </div>
     </div>
 
     <script>
@@ -50,6 +73,10 @@
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const errorMessage = document.getElementById('error-message');
+        const levelSelect = document.getElementById('level-select');
+        const sizeSlider = document.getElementById('size-slider');
+        const sizeValue = document.getElementById('size-value');
+        const downloadBtn = document.getElementById('download-btn');
 
         // 定義 QR Code 內容的固定後綴部分
         const STATIC_SUFFIX = "5110000006ac000006ac0000000042974314YX+9lXMoNCS26/dp3oS5Ow==:**********:7:17:1:ｦﾛｿ顬pｮﾆ:2:50:1:1:1";
@@ -77,13 +104,18 @@
                 return;
             }
 
+            const level = levelSelect.value;
+            const size = parseInt(sizeSlider.value, 10);
+            
+            // 更新尺寸顯示
+            sizeValue.textContent = size;
+
             const rocDate = getROCDateString();
             const qrContent = `${invoiceNumber}${rocDate}${STATIC_SUFFIX}`;
 
             // 清除舊的 QR Code
             qrcodeContainer.innerHTML = '';
             
-            // *** FIX: 使用 QRious 函式庫產生 QR Code ***
             try {
                 new QRious({
                     element: (() => {
@@ -92,14 +124,14 @@
                         return canvas;
                     })(),
                     value: qrContent,
-                    size: 240,
-                    level: 'L', // 可選 'L', 'M', 'Q', 'H'
+                    size: size,
+                    level: level,
                     background: '#ffffff',
                     foreground: '#000000'
                 });
             } catch (error) {
                 console.error("QR Code generation failed:", error);
-                qrcodeContainer.innerHTML = `<p class="text-red-500">QR Code 產生失敗: 資料長度可能過長。</p>`;
+                qrcodeContainer.innerHTML = `<p class="text-red-500">產生失敗: 資料過長或容錯率太高。</p>`;
             }
         }
 
@@ -128,14 +160,32 @@
             }
         }
 
-        // --- 事件監聽器 ---
+        /**
+         * 下載 QR Code 功能
+         */
+        function downloadQRCode() {
+            const canvas = qrcodeContainer.querySelector('canvas');
+            if (canvas) {
+                const link = document.createElement('a');
+                link.href = canvas.toDataURL('image/png');
+                link.download = `qrcode-${invoiceInput.value}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                alert("請先產生 QR Code 後再下載。");
+            }
+        }
 
+        // --- 事件監聽器 ---
         invoiceInput.addEventListener('input', generateQRCode);
         prevBtn.addEventListener('click', () => updateInvoiceNumber(-1));
         nextBtn.addEventListener('click', () => updateInvoiceNumber(1));
+        levelSelect.addEventListener('change', generateQRCode);
+        sizeSlider.addEventListener('input', generateQRCode);
+        downloadBtn.addEventListener('click', downloadQRCode);
 
         // --- 初始載入 ---
-
         window.addEventListener('load', generateQRCode);
 
     </script>
